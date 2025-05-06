@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Work Order Calendar Generator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: auto;
+      padding: 1rem;
+      background-color: #f7f7f7;
+    }
+    h2, h3 {
+      text-align: center;
+      margin-top: 2rem;
+    }
+    fieldset {
+      border: 1px solid #ccc;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      background-color: #fff;
+    }
+    legend {
+      font-weight: bold;
+      padding: 0 10px;
+    }
+    label {
+      display: block;
+      margin-top: 0.5rem;
+      font-weight: bold;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 0.5rem;
+      margin-top: 0.25rem;
+      box-sizing: border-box;
+    }
+    textarea#output, textarea#calendarTitle {
+      margin-top: 1rem;
+      background: #f0f0f0;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+    .button-group {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 0.75rem 1.25rem;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Work Order Calendar Generator</h2>
+
+<form id="woForm">
+  <fieldset>
+    <legend>Work Order Info</legend>
+    <label>Company</label>
+    <input type="text" id="company">
+
+	<label for="platform">Platform:</label>
+	<select id="platform"></select>
+
+	<label for="tech">Technician:</label>
+	<select id="tech"></select>
+
+    <label>Work Order Number</label>
+    <input type="text" id="woNumber">
+
+    <label>Work Order Description</label>
+    <textarea id="woDesc" rows="3"></textarea>
+
+    <label>Tools Required</label>
+    <textarea id="tools" rows="2"></textarea>
+  </fieldset>
+
+  <fieldset>
+    <legend>Location Info</legend>
+    <label>Location Name</label>
+    <input type="text" id="location">
+
+    <label>Address</label>
+    <input type="text" id="address" placeholder="Start typing address...">
+
+    <label>Suite Number (Optional)</label>
+    <input type="text" id="suite">
+
+    <label>Arrival Time (Date & Time)</label>
+    <input type="datetime-local" id="arrivalTime">
+  </fieldset>
+
+  <fieldset>
+    <legend>Compensation</legend>
+    <label>Pay Rate</label>
+    <input type="text" id="payRate">
+  <label>Pay Rate Type</label>
+	<select id="payRateType">
+		<option value="per hour">Per Hour</option>
+		<option value="per unit">Per Unit</option>
+		<option value="flat rate">Flat Rate</option>
+	</select>
+
+    <label>Travel Rate</label>
+    <input type="text" id="travelRate">
+  </fieldset>
+
+  <fieldset>
+    <legend>End User</legend>
+    <label>End User Name</label>
+    <input type="text" id="endUser">
+
+    <label>End User Phone Number</label>
+    <input type="text" id="endUserPhone">
+  </fieldset>
+
+  <fieldset>
+    <legend>WO Contact</legend>
+    <label>WO Contact Name</label>
+    <input type="text" id="woContact">
+
+    <label>WO Contact Phone</label>
+    <input type="text" id="woPhone">
+
+    <label>WO Contact Email</label>
+    <input type="email" id="woEmail">
+  </fieldset>
+
+  <div class="button-group">
+    <button type="button" onclick="generate()">Generate</button>
+    <button type="button" onclick="copyOutput()">Copy Description</button>
+    <button type="button" onclick="copyTitle()">Copy Title</button>
+	<button type="button" onclick="openGoogleCalendar()">Add to Google Calendar</button>
+	<button type="button" onclick="downloadICS()">Download .ics Calendar File</button>
+    <!--Testing <button type="button" onclick="autofillTestData()">Auto Fill Test Info</button> -->
+  </div>
+</form>
+
+<h3>Calendar Title</h3>
+<textarea id="calendarTitle" rows="2" readonly></textarea>
+
+<h3>Generated Description</h3>
+<textarea id="output" rows="35" readonly></textarea>
+
+<script>
+
+  // ==============================
+  // CONFIGURATION SECTION
+  // ==============================
+
+  const CONFIG = {
+    apiKey: "Add API Key Here", // Replace with your actual API key
+    origin: "Add Origin Address Here", // Replace with your origin address
+    techs: ["Random Name", "Random Name 2", "Random Name 3"], // Add or modify tech names
+    platforms: ["Platform", "Platform 2", "Platform 3"] // Add or modify platforms
+  };
+
+  // Populate dropdowns on page load
+  window.addEventListener("DOMContentLoaded", () => {
+    const techSelect = document.getElementById("tech");
+    const platformSelect = document.getElementById("platform");
+
+    CONFIG.techs.forEach(tech => {
+      const option = document.createElement("option");
+      option.value = tech;
+      option.textContent = tech;
+      techSelect.appendChild(option);
+    });
+
+    CONFIG.platforms.forEach(platform => {
+      const option = document.createElement("option");
+      option.value = platform;
+      option.textContent = platform;
+      platformSelect.appendChild(option);
+    });
+  });
+
+  const origin = CONFIG.origin;
+  let destinationPlaceId = "";
+
+  function initAutocomplete() {
+    const input = document.getElementById("address");
+    const autocomplete = new google.maps.places.Autocomplete(input, {
+      types: ["geocode"],
+      componentRestrictions: { country: "us" }
+    });
+    autocomplete.addListener("place_changed", function () {
+      const place = autocomplete.getPlace();
+      destinationPlaceId = place.place_id || "";
+    });
+  }
+
+	function generate() {
+		function formatCurrency(value) {
+			const num = parseFloat(value.replace(/[^0-9.]/g, ""));
+			return isNaN(num) ? "$0.00" : num.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+	}
+	
+    const get = id => document.getElementById(id).value.trim();
+    const arrivalInput = document.getElementById("arrivalTime").value;
+    if (!arrivalInput) return alert("Please select an arrival time.");
+    const arrivalTime = new Date(arrivalInput);
+    const title = `${get("tech")} - ${get("location")} - ${get("woNumber")}`;
+    document.getElementById("calendarTitle").value = title;
+
+    const directionsService = new google.maps.DirectionsService();
+    const isTestAddress = get("address").includes("Farmville");
+    const destination = isTestAddress
+      ? { location: { lat: 37.3021, lng: -78.3912 } }
+      : destinationPlaceId
+        ? { placeId: destinationPlaceId }
+        : null;
+
+    if (!destination) {
+      alert("Please select a valid address from autocomplete.");
+      return;
+    }
+
+    directionsService.route({
+      origin: origin,
+      destination: destination,
+      travelMode: google.maps.TravelMode.DRIVING
+    }, (response, status) => {
+      if (status === "OK") {
+        const leg = response.routes[0].legs[0];
+        const durationSec = leg.duration.value;
+		const durationMin = Math.round(durationSec / 60);
+		const hours = Math.floor(durationMin / 60);
+		const minutes = durationMin % 60;
+		const travelTimeStr = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+        const leaveTime = new Date(arrivalTime.getTime() - (durationMin + 30) * 60000);
+
+        const toolsList = get("tools")
+          .split(',')
+          .map(t => t.trim())
+          .filter(t => t)
+          .map(t => `- ${t}`)
+          .join('\n');
+
+        const output = `
+Work Order Summary
+------------------
+WO Number      : ${get("woNumber")}
+Company        : ${get("company")}
+Platform       : ${get("platform")}
+Technician     : ${get("tech")}
+
+Location Info
+-------------
+Location Name  : ${get("location")}
+Address        : ${get("address")}
+${get("suite") ? `Suite          : ${get("suite")}` : ""}
+Travel Time    : ${travelTimeStr}
+Leave Office By: ${leaveTime.toLocaleDateString()} ${leaveTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+Arrival Time   : ${arrivalTime.toLocaleDateString()} ${arrivalTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+
+Compensation
+------------
+Pay Rate       : ${formatCurrency(get("payRate"))} (${get("payRateType")})
+Travel Rate    : ${formatCurrency(get("travelRate"))}
+
+Tools Required
+--------------
+${toolsList || 'None listed'}
+
+Work Order Description
+----------------------
+${get("woDesc")}
+
+End User Contact
+----------------
+Name           : ${get("endUser")}
+Phone          : ${get("endUserPhone")}
+
+WO Contact
+----------
+Name           : ${get("woContact")}
+Phone          : ${get("woPhone")}
+Email          : ${get("woEmail")}
+        `.trim();
+
+        document.getElementById("output").value = output;
+      } else {
+        alert("Failed to retrieve route. Please make sure the address is complete and selected from autocomplete.");
+      }
+    });
+  }
+
+function copyOutput() {
+  const output = document.getElementById("output");
+  navigator.clipboard.writeText(output.value)
+    .then(() => alert("Description copied to clipboard!"))
+    .catch(err => {
+      console.error("Copy failed: ", err);
+      alert("Failed to copy. Please try manually.");
+    });
+}
+
+
+function copyTitle() {
+  const title = document.getElementById("calendarTitle").value;
+  navigator.clipboard.writeText(title)
+    .then(() => alert("Title copied to clipboard!"))
+    .catch(err => {
+      console.error("Copy failed: ", err);
+      alert("Failed to copy title.");
+    });
+}
+
+ /** Testing
+  function autofillTestData() {
+    const now = new Date();
+    const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    const arrivalTime = twoHoursFromNow.toISOString().slice(0, 16);
+
+    document.getElementById("company").value = "Tech Solutions Inc";
+    document.getElementById("platform").value = "Field Nation";
+    document.getElementById("tech").value = "Anthony Phelps";
+    document.getElementById("woNumber").value = "WO-123456";
+    document.getElementById("woDesc").value = "Install new network switch and verify connectivity.";
+    document.getElementById("tools").value = "Screwdriver, Cable Tester, Ladder";
+    document.getElementById("location").value = "Target Farmville";
+    document.getElementById("address").value = "300 E 3rd St, Farmville, VA 23901, USA";
+    document.getElementById("suite").value = "205";
+    document.getElementById("arrivalTime").value = arrivalTime;
+    document.getElementById("payRate").value = "$50/hr";
+    document.getElementById("travelRate").value = "$0.65/mi";
+    document.getElementById("endUser").value = "Jane Smith";
+    document.getElementById("endUserPhone").value = "(555) 123-4567";
+    document.getElementById("woContact").value = "Bill Manager";
+    document.getElementById("woPhone").value = "(555) 987-6543";
+    document.getElementById("woEmail").value = "bill.manager@example.com";
+
+    destinationPlaceId = "";
+  }**/
+  function downloadICS() {
+	const get = id => document.getElementById(id).value.trim();
+	const arrivalInput = document.getElementById("arrivalTime").value;
+	if (!arrivalInput) return alert("Please select an arrival time.");
+	const arrivalTime = new Date(arrivalInput);
+	const endTime = new Date(arrivalTime.getTime() + 60 * 60 * 1000); // 1 hour duration
+
+	const pad = n => n.toString().padStart(2, '0');
+	const formatICS = d => `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+
+	const icsContent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Your Company//Work Order Calendar//EN
+BEGIN:VEVENT
+UID:${Date.now()}@workorder
+DTSTAMP:${formatICS(new Date())}
+DTSTART:${formatICS(arrivalTime)}
+DTEND:${formatICS(endTime)}
+SUMMARY:${get("tech")} - ${get("location")} - ${get("woNumber")}
+DESCRIPTION:${get("woDesc").replace(/\\n/g, "\\\\n")}
+LOCATION:${get("address")}${get("suite") ? ', Suite ' + get("suite") : ''}
+END:VEVENT
+END:VCALENDAR`;
+
+	const blob = new Blob([icsContent], { type: "text/calendar" });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = "WorkOrderEvent.ics";
+	a.click();
+	URL.revokeObjectURL(url);
+	}
+	
+function openGoogleCalendar() {
+  const get = id => document.getElementById(id).value.trim();
+  const arrivalInput = document.getElementById("arrivalTime").value;
+  if (!arrivalInput) return alert("Please select an arrival time.");
+  const arrival = new Date(arrivalInput);
+  const end = new Date(arrival.getTime() + 60 * 60 * 1000); // 1 hour duration
+
+  const formatGoogleTime = date =>
+    date.toISOString().replace(/-|:|\.\d+/g, "").slice(0, 15) + "Z";
+
+  const title = `${get("tech")} - ${get("location")} - ${get("woNumber")}`;
+  const location = `${get("address")}${get("suite") ? ", Suite " + get("suite") : ""}`;
+  const fullDescription = document.getElementById("output").value;
+
+  const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE` +
+    `&text=${encodeURIComponent(title)}` +
+    `&dates=${formatGoogleTime(arrival)}/${formatGoogleTime(end)}` +
+    `&details=${encodeURIComponent(fullDescription)}` +
+    `&location=${encodeURIComponent(location)}`;
+
+  window.open(calendarUrl, "_blank");
+}
+	
+</script>
+
+<script async id="googleMapsScript"></script>
+<script>
+  // Set the Google Maps API script source using the API key from CONFIG
+  document.getElementById("googleMapsScript").src = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.apiKey}&libraries=places&callback=initAutocomplete`;
+</script>
+
+</body>
+</html>
